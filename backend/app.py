@@ -14,7 +14,10 @@ import base64
 from openai import OpenAI
 from gridfs import GridFS
 import io
-
+import requests
+import json
+from datetime import datetime
+import stripe
 
 load_dotenv()
 MONGO_URI_STRING = os.getenv("MONGO_URI_STRING")
@@ -38,8 +41,10 @@ mongoClient = MongoClient(MONGO_URI_STRING, server_api=ServerApi('1'))
 
 login = mongoClient["Login"]
 passwordsDB = login["Passwords"]
+ridesDB = mongoClient["Events"]["Rides"]
+eventCards = mongoClient["Events"]["EventCards"]
+eventPayments = mongoClient["Events"]["EventPayments"]
 events = mongoClient["Events"]
-ridesDB = mongoClient["Rides"]
 fs = GridFS(events)
 eventsDB = events["Events"]
 picturesDB = events["Pictures"]
@@ -47,8 +52,322 @@ timesDB = events["Times"]
 
 
 
+stripe.api_key = os.getenv("STRIPE_API_KEY")
 
 
+class MarqetaAPI:
+    def __init__(self):
+        self.username = "8847d248-adfb-4a3d-b047-dad6f326daad"
+        self.password = "2a0aa7e6-c2a4-453d-9914-efc57eadae51"
+        self.base_url = "https://sandbox-api.marqeta.com/v3"
+        self.card_product_token = "68ea91ce-d4c4-4d16-ae6e-03fb6cf0c515"
+    
+    def create_user(self, event_id):
+        """Create a Marqeta user for an event"""
+        url = f"{self.base_url}/users"
+        
+        user_data = {
+            "first_name": f"Event",
+            "last_name": f"{event_id}",
+            "email": f"event.{event_id}.{datetime.now().strftime('%Y%m%d%H%M%S')}@example.com"
+        }
+        
+        response = requests.post(
+            url,
+            auth=(self.username, self.password),
+            json=user_data,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 201:
+            return response.json()["token"]
+        else:
+            raise Exception(f"Failed to create user: {response.text}")
+    
+    def create_card(self, user_token):
+        """Create a virtual card for a user"""
+        url = f"{self.base_url}/cards?show_cvv_number=true&show_pan=true"
+        
+        card_data = {
+            "user_token": user_token,
+            "card_product_token": self.card_product_token
+        }
+        
+        response = requests.post(
+            url,
+            auth=(self.username, self.password),
+            json=card_data,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 201:
+            card_info = response.json()
+            return {
+                "token": card_info.get('token'),
+                "pan": card_info.get('pan'),
+                "cvv": card_info.get('cvv_number'),
+                "expiration": card_info.get('expiration'),
+                "expiration_time": card_info.get('expiration_time')
+            }
+        else:
+            raise Exception(f"Failed to create card: {response.text}")
+    
+    def load_card(self, user_token, amount):
+        """Load money onto a user's card"""
+        url = f"{self.base_url}/gpaorders"
+        
+        
+        gpa_data = {
+            "user_token": user_token,
+            "amount": amount,
+            "currency_code": "USD",
+            "funding_source_token": "sandbox_program_funding"  
+        }
+        
+        response = requests.post(
+            url,
+            auth=(self.username, self.password),
+            json=gpa_data,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code in [200, 201]:
+            return response.json()
+        else:
+            raise Exception(f"Failed to load card: {response.text}")
+
+
+@app.route("/api/create_event_card", methods=["POST"])
+def create_event_card():
+    data = request.get_json()
+    username = data.get("username")
+    event_id = data.get("eventID")
+    
+    if not all([username, event_id]):
+        return jsonify({"message": "missing_parameters"})
+    
+    
+    event = eventsDB.find_one({"eventID": int(event_id)})
+    if not event:
+        return jsonify({"message": "invalid_id"})
+    
+    if username != event.get("host"):
+        return jsonify({"message": "not_authorized"})
+    
+    
+    existing_card = eventCards.find_one({"eventID": int(event_id)})
+    if existing_card:
+        return jsonify({
+            "message": "card_exists",
+            "card_data": existing_card
+        })
+    
+    
+    try:
+        marqeta = MarqetaAPI()
+        user_token = marqeta.create_user(event_id)
+        card_data = marqeta.create_card(user_token)
+        
+        
+        card_record = {
+            "eventID": int(event_id),
+            "marqeta_user_token": user_token,
+            "marqeta_card_token": card_data["token"],
+            "card_pan": card_data["pan"],
+            "card_cvv": card_data["cvv"],
+            "card_expiration": card_data["expiration"],
+            "current_balance": 0,
+            "total_contributions": 0,
+            "contributions_count": 0,
+            "created_at": datetime.now().isoformat(),
+            "created_by": username
+        }
+        
+        eventCards.insert_one(card_record)
+        
+        return jsonify({
+            "message": "success",
+            "card_data": card_record
+        })
+    except Exception as e:
+        print(e)
+        return jsonify({"message": "card_creation_error", "error": str(e)})
+    
+@app.route("/api/manual_payment_success", methods=["POST"])
+def manual_payment_success():
+    print("Manual payment success endpoint called!")
+    data = request.get_json()
+    event_id = data.get("eventID")
+    username = data.get("username")
+    amount = data.get("amount")
+    payment_intent_id = data.get("paymentIntent")
+    
+    print(f"Processing payment for event {event_id}, amount ${amount}")
+    
+    # Calculate load amount
+    card_load_amount = amount * 0.99
+    
+    # Create payment record
+    payment_record = {
+        "eventID": int(event_id),
+        "username": username,
+        "amount": amount,
+        "fee": amount - card_load_amount,
+        "card_load_amount": card_load_amount,
+        "stripe_payment_id": payment_intent_id,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Save payment record
+    eventPayments.insert_one(payment_record)
+    
+    print(f"Looking for card with eventID={int(event_id)}")
+    # Load card
+    event_card = eventCards.find_one({"eventID": int(event_id)})
+    print(f"Card found: {event_card is not None}")
+    
+    if event_card:
+        marqeta = MarqetaAPI()
+        user_token = event_card["marqeta_user_token"]
+        
+        try:
+            print(f"Loading card with ${card_load_amount}")
+            marqeta.load_card(user_token, str(card_load_amount))
+            
+            # Update card record
+            update_result = eventCards.update_one(
+                {"eventID": int(event_id)},
+                {"$inc": {
+                    "current_balance": card_load_amount,
+                    "total_contributions": amount,
+                    "contributions_count": 1
+                }}
+            )
+            print(f"DB update result: matched={update_result.matched_count}, modified={update_result.modified_count}")
+            
+            return jsonify({"status": "success"})
+        except Exception as e:
+            print(f"Error loading card: {str(e)}")
+            return jsonify({"status": "error", "message": str(e)})
+    
+    return jsonify({"status": "error", "message": "Card not found"})
+
+@app.route("/api/stripe_webhook", methods=["POST"])
+def stripe_webhook():
+    print("Webhook endpoint hit!")
+    payload = request.get_data(as_text=True)
+    sig_header = request.headers.get('Stripe-Signature')
+    
+    print(f"Signature header present: {sig_header is not None}")
+    print(f"Webhook secret: {os.getenv('STRIPE_WEBHOOK_SECRET')[:5]}...")  # Print first 5 chars for security
+    
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, os.getenv("STRIPE_WEBHOOK_SECRET")
+        )
+        print("Webhook verified successfully!")
+        
+        # Rest of your code...
+    except ValueError as e:
+        print(f"Invalid payload: {str(e)}")
+        return jsonify({"message": "Invalid payload"}), 400
+    except stripe.error.SignatureVerificationError as e:
+        print(f"Invalid signature: {str(e)}")
+        return jsonify({"message": "Invalid signature"}), 400
+
+@app.route("/api/get_event_card", methods=["GET"])
+def get_event_card():
+    event_id = request.args.get("eventID")
+    username = request.args.get("username")
+    
+    if not all([event_id, username]):
+        return jsonify({"message": "missing_parameters"})
+    
+    
+    event = eventsDB.find_one({"eventID": int(event_id)})
+    if not event:
+        return jsonify({"message": "invalid_id"})
+    
+    if username not in event.get("members", []) and username != event.get("host"):
+        return jsonify({"message": "not_authorized"})
+    
+    
+    card = eventCards.find_one({"eventID": int(event_id)})
+    if not card:
+        return jsonify({"message": "card_not_found"})
+    
+    
+    payments = list(eventPayments.find({"eventID": int(event_id)}))
+    for payment in payments:
+        payment["_id"] = str(payment["_id"])
+    
+    
+    user_contributed = any(payment["username"] == username for payment in payments)
+    
+    
+    is_host = (username == event.get("host"))
+    
+    card_details = {
+        "eventID": card["eventID"],
+        "current_balance": card["current_balance"],
+        "total_contributions": card["total_contributions"],
+        "contributions_count": card["contributions_count"],
+        "payments": payments,
+        "user_contributed": user_contributed
+    }
+    
+    
+    if is_host or user_contributed:
+        card_details.update({
+            "card_pan": card["card_pan"],
+            "card_cvv": card["card_cvv"],
+            "card_expiration": card["card_expiration"]
+        })
+    
+    return jsonify({
+        "message": "success",
+        "card": card_details
+    })
+
+@app.route("/api/create_payment_intent", methods=["POST"])
+def create_payment_intent():
+    data = request.get_json()
+    username = data.get("username")
+    event_id = data.get("eventID")
+    amount = data.get("amount", 0)
+    
+    if not all([username, event_id, amount]) or amount <= 0:
+        return jsonify({"message": "missing_parameters"})
+    
+    
+    event = eventsDB.find_one({"eventID": int(event_id)})
+    if not event:
+        return jsonify({"message": "invalid_id"})
+    
+    if username not in event.get("members", []) and username != event.get("host"):
+        return jsonify({"message": "not_authorized"})
+    
+    
+    try:
+        
+        stripe_amount = int(float(amount) * 100)
+        
+        payment_intent = stripe.PaymentIntent.create(
+            amount=stripe_amount,
+            currency="usd",
+            metadata={
+                "event_id": event_id,
+                "username": username
+            }
+        )
+        
+        return jsonify({
+            "message": "success",
+            "clientSecret": payment_intent.client_secret
+        })
+    except Exception as e:
+        return jsonify({"message": "payment_error", "error": str(e)})
+    
 @app.route("/api/verify_login", methods=["POST"])
 def verify_login():
     data = request.get_json()
@@ -102,8 +421,6 @@ def create_event():
     
     picturesDB.insert_one({"eventID": eventID, "pictures": {}})
     timesDB.insert_one({"eventID": eventID, "times": {}})
-    
-    
     ridesDB.insert_one({"eventID": eventID, "offers": [], "requests": []})
     
     return jsonify({"message": "success"})
@@ -156,7 +473,7 @@ def add_ride_offer():
     
     
     
-    ride_id = str(datetime.datetime.now().timestamp())
+    ride_id = str(datetime.now().timestamp())
     
     ride_offer = {
         "id": ride_id,
@@ -167,7 +484,7 @@ def add_ride_offer():
         "takenSeats": 0,
         "passengers": [],
         "notes": notes,
-        "timestamp": datetime.datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat()
     }
     
     rides_doc = ridesDB.find_one({"eventID": int(event_id)})
@@ -176,12 +493,12 @@ def add_ride_offer():
         ride_offers = rides_doc.get("offers", [])
         ride_offers.append(ride_offer)
         
-        rides.update_one(
+        ridesDB.update_one(
             {"eventID": int(event_id)},
             {"$set": {"offers": ride_offers}}
         )
     else:
-        rides.insert_one({
+        ridesDB.insert_one({
             "eventID": int(event_id),
             "offers": [ride_offer],
             "requests": []
@@ -237,7 +554,7 @@ def join_ride():
             ride_offers[i]["passengers"] = passengers
             ride_offers[i]["takenSeats"] = len(passengers)
             
-            rides.update_one(
+            ridesDB.update_one(
                 {"eventID": int(event_id)},
                 {"$set": {"offers": ride_offers}}
             )
@@ -262,7 +579,7 @@ def leave_ride():
     
    
     
-    rides_doc = rides.find_one({"eventID": int(event_id)})
+    rides_doc = ridesDB.find_one({"eventID": int(event_id)})
     
     if not rides_doc:
         return jsonify({"message": "no_rides"})
@@ -483,10 +800,10 @@ def add_post():
     
     
     post = {
-        "id": str(datetime.datetime.now().timestamp()),
+        "id": str(datetime.now().timestamp()),
         "username": username,
         "content": content,
-        "timestamp": datetime.datetime.now().isoformat(),
+        "timestamp": datetime.now().isoformat(),
         "likes": []
     }
     
@@ -769,7 +1086,7 @@ def upload_picture():
         base64_encoded = base64.b64encode(file_bytes).decode('utf-8')
         
         
-        image_id = str(datetime.datetime.now().timestamp())
+        image_id = str(datetime.now().timestamp())
         
         
         image_data = {
@@ -777,7 +1094,7 @@ def upload_picture():
             "filename": secure_filename(file.filename),
             "content_type": file.content_type,
             "base64_data": base64_encoded,
-            "uploaded_at": datetime.datetime.now().isoformat()
+            "uploaded_at": datetime.now().isoformat()
         }
         
         
@@ -851,4 +1168,4 @@ def get_image(image_id):
         return jsonify({"message": "error", "error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, host = '0.0.0.0')

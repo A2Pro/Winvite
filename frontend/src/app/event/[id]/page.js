@@ -21,6 +21,7 @@ import PicturesTab from './PicturesTab';
 import PostsTab from './PostsTab';
 import LocationsTab from './LocationsTab';
 import RidesTab from './RidesTab';
+import PaymentsTab from './PaymentsTab';
 
 export default function EventPage() {
   const router = useRouter();
@@ -111,6 +112,8 @@ export default function EventPage() {
         return <LocationsTab eventID={eventID} username={username} event={event} />;
       case 'rides':
         return <RidesTab eventID={eventID} username={username} event={event} />;
+      case 'payments':
+        return <PaymentsTab eventID={eventID} username={username} event={event} />;
       default:
         return <EventInfoTab event={event} username={username} />;
     }
@@ -233,6 +236,12 @@ export default function EventPage() {
                   id="rides" 
                   label="Rides" 
                   current={activeTab === 'rides'}
+                  icon={<TruckIcon className="mr-3 h-5 w-5" />} 
+                />
+                <TabItem 
+                  id="payments" 
+                  label="Payments" 
+                  current={activeTab === 'payments'}
                   icon={<TruckIcon className="mr-3 h-5 w-5" />} 
                 />
               </nav>
