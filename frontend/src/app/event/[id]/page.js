@@ -10,8 +10,9 @@ import {
   MapPinIcon,
   UserGroupIcon,
   ShareIcon,
-  ClockIcon,
-  TruckIcon
+  TruckIcon,
+  BanknotesIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 
 // Tab components
@@ -22,6 +23,7 @@ import PostsTab from './PostsTab';
 import LocationsTab from './LocationsTab';
 import RidesTab from './RidesTab';
 import PaymentsTab from './PaymentsTab';
+import ArrivalTab from './ArrivalTab';
 
 export default function EventPage() {
   const router = useRouter();
@@ -114,6 +116,8 @@ export default function EventPage() {
         return <RidesTab eventID={eventID} username={username} event={event} />;
       case 'payments':
         return <PaymentsTab eventID={eventID} username={username} event={event} />;
+      case 'arrival':
+        return <ArrivalTab eventID={eventID} username={username} event={event} />;
       default:
         return <EventInfoTab event={event} username={username} />;
     }
@@ -242,7 +246,13 @@ export default function EventPage() {
                   id="payments" 
                   label="Payments" 
                   current={activeTab === 'payments'}
-                  icon={<TruckIcon className="mr-3 h-5 w-5" />} 
+                  icon={<BanknotesIcon className="mr-3 h-5 w-5" />} 
+                />
+                <TabItem 
+                  id="arrival" 
+                  label="Arrival Status" 
+                  current={activeTab === 'arrival'}
+                  icon={<ClockIcon className="mr-3 h-5 w-5" />} 
                 />
               </nav>
 

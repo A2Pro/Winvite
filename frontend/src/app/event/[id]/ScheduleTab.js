@@ -207,13 +207,15 @@ export default function ScheduleTab({ eventID, username, event }) {
                 {bestTimeSlots.map((slot, index) => (
                   <li key={index} className="flex items-center text-sm">
                     <span className="h-2 w-2 bg-green-400 rounded-full mr-2"></span>
-                    {new Date(slot).toLocaleString([], {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
+                    <span className="text-gray-800 font-medium">
+                      {new Date(slot).toLocaleString([], {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
                     <span className="ml-2 text-gray-500">
                       ({allTimeSlots[slot]} of {totalParticipants} available)
                     </span>

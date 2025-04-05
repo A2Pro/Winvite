@@ -45,6 +45,7 @@ ridesDB = mongoClient["Events"]["Rides"]
 eventCards = mongoClient["Events"]["EventCards"]
 eventPayments = mongoClient["Events"]["EventPayments"]
 events = mongoClient["Events"]
+arrivalStatusDB = events["ArrivalStatus"]
 fs = GridFS(events)
 eventsDB = events["Events"]
 picturesDB = events["Pictures"]
@@ -157,6 +158,8 @@ def create_event_card():
     
     existing_card = eventCards.find_one({"eventID": int(event_id)})
     if existing_card:
+        
+        existing_card['_id'] = str(existing_card['_id'])
         return jsonify({
             "message": "card_exists",
             "card_data": existing_card
@@ -183,7 +186,11 @@ def create_event_card():
             "created_by": username
         }
         
-        eventCards.insert_one(card_record)
+        
+        result = eventCards.insert_one(card_record)
+        
+        
+        card_record['_id'] = str(result.inserted_id)
         
         return jsonify({
             "message": "success",
@@ -204,10 +211,10 @@ def manual_payment_success():
     
     print(f"Processing payment for event {event_id}, amount ${amount}")
     
-    # Calculate load amount
+    
     card_load_amount = amount * 0.99
     
-    # Create payment record
+    
     payment_record = {
         "eventID": int(event_id),
         "username": username,
@@ -218,11 +225,11 @@ def manual_payment_success():
         "timestamp": datetime.now().isoformat()
     }
     
-    # Save payment record
+    
     eventPayments.insert_one(payment_record)
     
     print(f"Looking for card with eventID={int(event_id)}")
-    # Load card
+    
     event_card = eventCards.find_one({"eventID": int(event_id)})
     print(f"Card found: {event_card is not None}")
     
@@ -234,7 +241,7 @@ def manual_payment_success():
             print(f"Loading card with ${card_load_amount}")
             marqeta.load_card(user_token, str(card_load_amount))
             
-            # Update card record
+            
             update_result = eventCards.update_one(
                 {"eventID": int(event_id)},
                 {"$inc": {
@@ -259,7 +266,7 @@ def stripe_webhook():
     sig_header = request.headers.get('Stripe-Signature')
     
     print(f"Signature header present: {sig_header is not None}")
-    print(f"Webhook secret: {os.getenv('STRIPE_WEBHOOK_SECRET')[:5]}...")  # Print first 5 chars for security
+    print(f"Webhook secret: {os.getenv('STRIPE_WEBHOOK_SECRET')[:5]}...")  
     
     try:
         event = stripe.Webhook.construct_event(
@@ -267,7 +274,7 @@ def stripe_webhook():
         )
         print("Webhook verified successfully!")
         
-        # Rest of your code...
+        
     except ValueError as e:
         print(f"Invalid payload: {str(e)}")
         return jsonify({"message": "Invalid payload"}), 400
@@ -368,6 +375,104 @@ def create_payment_intent():
     except Exception as e:
         return jsonify({"message": "payment_error", "error": str(e)})
     
+@app.route("/api/update_arrival_status", methods=["POST"])
+def update_arrival_status():
+    data = request.get_json()
+    username = data.get("username")
+    event_id = data.get("eventID")
+    status = data.get("status")
+    arrival_time = data.get("arrivalTime")
+    
+    if not all([username, event_id, status]):
+        return jsonify({"message": "missing_parameters"})
+    
+    event = eventsDB.find_one({"eventID": int(event_id)})
+    if not event:
+        return jsonify({"message": "invalid_id"})
+    
+    if username not in event.get("members", []) and username != event.get("host"):
+        return jsonify({"message": "not_authorized"})
+    
+    try:
+        
+        arrivalStatusDB.update_one(
+            {"eventID": int(event_id), "username": username},
+            {"$set": {
+                "status": status,
+                "arrivalTime": arrival_time,
+                "timestamp": datetime.now().isoformat()
+            }},
+            upsert=True
+        )
+        
+        return jsonify({"message": "success"})
+    except Exception as e:
+        print(f"Error updating arrival status: {str(e)}")
+        return jsonify({"message": "error", "error": str(e)})
+
+@app.route("/api/get_arrival_status", methods=["GET"])
+def get_arrival_status():
+    event_id = request.args.get("eventID")
+    username = request.args.get("username")
+    
+    if not all([event_id, username]):
+        return jsonify({"message": "missing_parameters"})
+    
+    event = eventsDB.find_one({"eventID": int(event_id)})
+    if not event:
+        return jsonify({"message": "invalid_id"})
+    
+    if username not in event.get("members", []) and username != event.get("host"):
+        return jsonify({"message": "not_authorized"})
+    
+    arrival_status = arrivalStatusDB.find_one({
+        "eventID": int(event_id), 
+        "username": username
+    })
+    
+    if arrival_status:
+        return jsonify({
+            "message": "success",
+            "status": arrival_status.get("status"),
+            "arrivalTime": arrival_status.get("arrivalTime")
+        })
+    
+    return jsonify({
+        "message": "success",
+        "status": None,
+        "arrivalTime": None
+    })
+
+@app.route("/api/get_group_arrival_stats", methods=["GET"])
+def get_group_arrival_stats():
+    event_id = request.args.get("eventID")
+    
+    if not event_id:
+        return jsonify({"message": "missing_parameters"})
+    
+    event = eventsDB.find_one({"eventID": int(event_id)})
+    if not event:
+        return jsonify({"message": "invalid_id"})
+    
+    
+    total_members = len(event.get("members", [])) + 1  
+    
+    
+    arrival_statuses = list(arrivalStatusDB.find({"eventID": int(event_id)}))
+    
+    
+    status_counts = {
+        "onTime": len([s for s in arrival_statuses if s.get("status") == "On Time"]),
+        "early": len([s for s in arrival_statuses if s.get("status") == "Early"]),
+        "late": len([s for s in arrival_statuses if s.get("status") == "Late"]),
+        "notReported": total_members - len(arrival_statuses)
+    }
+    
+    return jsonify({
+        "message": "success",
+        "stats": status_counts
+    })
+
 @app.route("/api/verify_login", methods=["POST"])
 def verify_login():
     data = request.get_json()
