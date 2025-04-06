@@ -1,6 +1,7 @@
 #Npm stuff
 frontend/node_modules
 frontend/public
+frontend/next
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

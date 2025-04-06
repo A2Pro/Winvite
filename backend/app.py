@@ -1067,7 +1067,7 @@ def get_locations():
             "message": "no_locations",
             "locations": {}
         })
-    
+    #1
     return jsonify({
         "message": "success",
         "locations": location_doc.get("locations", {})
