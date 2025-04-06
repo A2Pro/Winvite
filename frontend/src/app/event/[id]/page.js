@@ -82,6 +82,16 @@ export default function EventPage() {
       });
   };
 
+  const handleTweet = () => {
+    const url = window.location.href;
+    const tweetText = event ? 
+      `Join me at Event #${event.eventID}${event.location ? ` in ${event.location}` : ''}${event.time ? ` on ${event.time}` : ''}!` : 
+      `Join my event!`;
+    
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(url)}`;
+    window.open(twitterUrl, '_blank');
+  };
+
   const TabItem = ({ id, label, icon, current }) => (
     <button
       onClick={() => setActiveTab(id)}
@@ -122,6 +132,13 @@ export default function EventPage() {
         return <EventInfoTab event={event} username={username} />;
     }
   };
+
+  // Twitter icon in heroicon style
+  const TwitterIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z" />
+    </svg>
+  );
 
   if (isLoading) {
     return (
@@ -177,13 +194,20 @@ export default function EventPage() {
               {isHost ? 'You are hosting this event' : `Hosted by ${event.host}`}
             </p>
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center space-x-2">
             <button
               onClick={handleShare}
               className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
             >
               <ShareIcon className="-ml-1 mr-2 h-4 w-4" aria-hidden="true" />
-              Share
+              Copy Link
+            </button>
+            <button
+              onClick={handleTweet}
+              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-blue-500 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              <TwitterIcon />
+              <span className="ml-2">Tweet</span>
             </button>
             <Link
               href="/dashboard"
