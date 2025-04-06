@@ -1101,14 +1101,14 @@ def generate_event():
         
         prompt = f"""
         Generate a fun and creative event idea for a friend group in {city} during the {time_description}.
-        Format the response as a JSON object with these fields:
+        Format the response as a JSON object with these fields ONE. IT NEEDS TO BE IN JSON ONLY, NO TEXT BEFORE OR AFTER THE JSON:
         - title: A catchy title for the event (max 30 characters)
         - description: A brief description of the activity (max 100 characters)
         - location: A specific place or type of venue in {city}
         - time: The time period ({time_description})
         
-        Make it specific to {city} if possible, and appropriate for the time of day.
-        Only return the JSON object, nothing else.
+        Make it specific to {city}, and appropriate for the time of day.
+        Only return the JSON object, nothing else GOT IT?.
         """
 
         
