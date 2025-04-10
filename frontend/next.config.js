@@ -7,19 +7,10 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://winvite-backend:8080/api/:path*',
+        destination: 'http://10.244.30.95:8080/api/:path*',
       },
     ];
   },
 };
 
-
-
-module.exports = {
-  nextConfig,
-  eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
-    ignoreDuringBuilds: true,
-  },
-}
+module.exports = nextConfig;
