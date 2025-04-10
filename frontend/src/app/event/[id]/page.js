@@ -268,7 +268,7 @@ export default function EventPage() {
                 />
                 <TabItem 
                   id="payments" 
-                  label="Payments" 
+                  label="(BETA) Payments" 
                   current={activeTab === 'payments'}
                   icon={<BanknotesIcon className="mr-3 h-5 w-5" />} 
                 />

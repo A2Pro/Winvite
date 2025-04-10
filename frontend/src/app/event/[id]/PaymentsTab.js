@@ -235,7 +235,7 @@ export default function PaymentsTab({ eventID, username, event }) {
     <div>
       <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
         <CreditCardIcon className="mr-2 h-5 w-5 text-indigo-500" />
-        Event Payments
+        Event Payments (DOES NOT WORK)
       </h2>
 
       {message && (

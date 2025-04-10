@@ -46,6 +46,8 @@ fs = GridFS(events)
 eventsDB = events["Events"]
 picturesDB = events["Pictures"]
 timesDB = events["Times"]
+statsDB = mongoClient["appStats"]
+userCountDB = mongoClient["userCount"]
 
 
 
@@ -471,6 +473,7 @@ def get_group_arrival_stats():
 
 @app.route("/api/verify_login", methods=["POST"])
 def verify_login():
+    userCountDB.insert_one({"type" : "login", "time" : datetime.now().isoformat})
     data = request.get_json()
     username = data.get("username")
     password = data.get("password")
