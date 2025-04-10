@@ -47,7 +47,7 @@ eventsDB = events["Events"]
 picturesDB = events["Pictures"]
 timesDB = events["Times"]
 statsDB = mongoClient["appStats"]
-userCountDB = mongoClient["userCount"]
+userCountDB = statsDB["userCount"]
 
 
 
